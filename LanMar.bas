@@ -21,6 +21,7 @@ Declare Sub UpdateCities()
 Declare Sub UpdateEnemy()
 Declare Sub UpdateFire()
 Declare Sub UpdateGame()
+Declare Sub WinGame()
 
 Const cEXPLODECOUNT = 60
 Const cFPS = 60
@@ -88,6 +89,9 @@ End Type
 Type typePlayer
 	cities As Integer
 	lives As Integer
+	explode As Integer
+	explodeCount As Integer
+	explodeRad As Double
 	fires As Integer
 	
 	x As Integer
@@ -174,7 +178,12 @@ Sub DrawScreen()
 		col -= 1
 	Next
 	
-	Put (player.x, player.y), playerImg, Trans
+	If (player.explode = cFALSE) Then
+		Put (player.x, player.y), playerImg, Trans
+	Else
+		Circle (player.x + player.w \ 2, player.y + player.h \ 2), player.explodeRad, RGB(Rnd * 255, Rnd * 255, Rnd * 255), , , , F
+	EndIf
+	
 	
 	For index = 0 To cNUMCITIES - 1
 		If (city(index).alive = cTRUE) Then
@@ -292,10 +301,10 @@ Sub InitGame()
 	ScreenSet (0, 0) : Cls
 	Draw String (scrnInfo.w / 2 - 80, scrnInfo.h / 2 - 32), "Martions are invading!"
 	Draw String (scrnInfo.w / 2 - 160, scrnInfo.h / 2 - 16), "Use your lantern's fire power to kill them all."
-	Draw String (scrnInfo.w / 2 - 94, scrnInfo.h / 2 + 0), "Survive to level 25 to win"
+	Draw String (scrnInfo.w / 2 - 94, scrnInfo.h / 2 + 0), "Survive to level 30 to win"
 	Draw String (scrnInfo.w / 2 - 150, scrnInfo.h / 2 + 32), "Use the mouse to move, left click to fire"
 	Draw String (scrnInfo.w / 2 - 170, scrnInfo.h / 2 + 48), "Press q to quit at any time (except right now)"
-	'Sleep 5000
+	Sleep 5000
 	ScreenSet (1, 0)
 	
 	fsound_init(48000, 32, 0)
@@ -324,10 +333,11 @@ End Sub
 
 Sub InitLevel()
 	Dim index As Integer
-	
+
 	If (level.numCitiesAlive <= 0) Then
 		GameOver()
 	EndIf
+
 	fsound_playsound(fsound_free, levelSiren)
 	If (level.level <> 0) Then
 
@@ -346,7 +356,10 @@ Sub InitLevel()
 
 			level.numEnemiesTotal = level.level + (Rnd * (level.level \ 4))
 			level.numEnemiesAlive = level.numEnemiesTotal
-			player.fires = level.numEnemiesTotal + 25 \ level.level
+			player.fires = level.numEnemiesTotal + 15 \ level.level
+			If (level.level > 20) Then
+				player.fires = level.numEnemiesTotal - (level.level + 15)
+			EndIf
 			If (player.fires < level.numEnemiesTotal) Then player.fires = level.numEnemiesTotal
 			InitEnemies()
 	
@@ -370,6 +383,10 @@ Sub InitPlayer()
 	player.w = pw
 	player.h = ph
 	player.fires = 0
+	player.lives = 1
+	player.explode = cFALSE
+	player.explodeCount = 90
+	player.explodeRad = player.w + player.h
 End Sub
 
 Sub MouseEvents()
@@ -381,7 +398,7 @@ Sub MouseEvents()
 	GetMouse(mouse.x, mouse.y, , button)
 
 	If (button = FB.BUTTON_LEFT And ready = cFALSE) Then
-		ready = cTRUE
+		If (player.explode = cFALSE) Then ready = cTRUE
 	EndIf
 	If (button <> FB.BUTTON_LEFT And ready = cTRUE) Then
 		If (mouse.y < player.y - 8) Then
@@ -412,7 +429,7 @@ Sub UpdateCities()
 	Dim index As Integer
 	
 	For index = 0 To cNUMCITIES - 1
-		If (city(index).alive= cTRUE) Then
+		If (city(index).alive = cTRUE) Then
 			If (city(index).explode = cTRUE) Then
 				If (city(index).explodeCount > 0) Then
 					city(index).explodeCount -= 1
@@ -424,6 +441,16 @@ Sub UpdateCities()
 		EndIf
 		
 	Next
+
+	If (player.lives = cTRUE) Then
+		If (player.explode = cTRUE) Then
+			If (player.explodeCount > 0) Then				
+				player.explodeCount -= 1
+			Else
+				player.lives = cFALSE
+			EndIf
+		EndIf
+	EndIf
 	
 End Sub
 
@@ -480,7 +507,7 @@ Sub UpdateEnemy()
 						ey = enemy(index).y + enemy(index).h / 2
 						For ind = 0 To cNUMCITIES - 1
 							
-							'Following IFs figures out which point is closest to enemy (checks four corners and center points on lines)
+							'Following IFs figures out which points on cities are closest to enemy (checks four corners and center points on lines)
 							If (ex < city(ind).x) Then	'If enemy is left of city
 								cx = city(ind).x
 							ElseIf (ex > city(ind).x + city(ind).w) Then	'If enemy is right of city
@@ -502,6 +529,28 @@ Sub UpdateEnemy()
 								city(ind).explode = cTRUE
 							EndIf
 						Next
+						
+						'Following IFs figures out which point on lantern is closest to enemy (checks four corners and center points on lines)
+						If (ex < player.x) Then		'If enemy is left of lantern
+							cx = player.x
+						ElseIf (ex > player.x + player.w) then		'If enemy is right of lantern
+							cx = player.x + player.w
+						Else
+							cx = player.x + player.w / 2
+						End If
+						If (ey < player.y) Then
+							cy = player.y
+						ElseIf (ey > player.y + player.h) Then
+							cy = player.y + player.h
+						Else
+							cy = player.y + player.h / 2
+						EndIf
+						
+						dist = Distance(cx, ex, cy, ey)
+						If (dist <= enemy(index).explodeRad) Then
+							If (player.explode = cFALSE) Then fsound_Playsound(fsound_free, cityExplosion)
+							player.explode = cTRUE
+						EndIf
 					EndIf
 				EndIf
 				
@@ -546,6 +595,8 @@ Sub UpdateGame()
 	
 	If (level.numCitiesAlive <= 0) Then
 		GameOver()
+	ElseIf (player.lives = cFALSE) Then
+		GameOver()
 	ElseIf (level.numEnemiesAlive <> 0) Then
 		UpdateCities()
 		UpdateEnemy()
@@ -556,6 +607,20 @@ Sub UpdateGame()
 			UpdateCities()
 		Next
 		level.level += 1
+		If level.level = 30 Then
+			WinGame()
+		EndIf
 		InitLevel()
+
 	EndIf
+End Sub
+
+Sub WinGame()
+	ScreenSet 0, 0
+	Cls
+	Draw String (scrnInfo.w / 2 - 70, scrnInfo.h / 2 - 16), "Holy Shit You Won!"
+	Sleep 2500
+	Draw String (scrnInfo.w / 2 - 86, scrnInfo.h / 2 + 16), "What a sucky ending huh?"
+	Sleep 5000
+	End
 End Sub
