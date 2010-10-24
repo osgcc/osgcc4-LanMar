@@ -1,4 +1,6 @@
 #Include "fbgfx.bi"
+#Include "fmod.bi"
+
 #Define dGREY RGB(127, 127, 127)
 #Define dRED RGB(255, 0, 0)
 #Define dWHITE RGB(255, 255, 255)
@@ -99,9 +101,13 @@ Type typeScreen
 End Type
 
 Dim Shared city(0 To cNUMCITIES - 1) As typeCity
+Dim Shared cityExplosion As Integer
 Dim Shared cityImg(0 To cNUMCITIES - 1) As Any Ptr
 Dim Shared fire(0 To cNUMFIRES - 1) As typeFire
+Dim Shared fireExplosion As Integer
+Dim Shared fireSound As Integer
 Dim Shared level As typeLevel
+Dim Shared levelSiren As Integer
 Dim Shared mouse As typeMouse
 Dim Shared mouseImg As Any Ptr
 Dim Shared player As typePlayer
@@ -122,10 +128,13 @@ Function Main() As Integer
 	
 	InitGame()
 	Do
+		'FSOUND_Update
 		MouseEvents()
 		UpdateGame()
 		DrawScreen()
 	Loop Until UCase(InKey$) = "Q"
+	
+	fsound_close
 	
 	Return cTrue
 	
@@ -144,6 +153,7 @@ Sub GameOver()
 	Draw String (scrnInfo.w / 2 - 32, scrnInfo.h / 2 - 16), "GAME OVER"
 	Draw String (scrnInfo.w / 2 - 88, scrnInfo.h / 2 + 16), "Last Level Completed: " & level.level
 	Sleep 5000
+	fsound_close
 	End
 End Sub
 
@@ -246,6 +256,7 @@ Sub InitCities()
 End Sub
 
 Sub InitEnemies()
+	Dim file As String
 	Dim index As Integer
 	
 	ReDim enemy(0 To level.numEnemiesTotal - 1)
@@ -254,8 +265,8 @@ Sub InitEnemies()
 	For index = 0 To level.numEnemiesTotal - 1
 		enemy(index).alive = cTRUE
 		enemy(index).speed = .5 + ((Rnd * level.level + 1) / 10)
-		enemy(index).w = 16
-		enemy(index).h = 16
+		enemy(index).w = 32
+		enemy(index).h = 32
 		enemy(index).fx = Rnd * scrnInfo.w
 		enemy(index).fy = scrnInfo.h
 		enemy(index).sx = (Rnd * (scrnInfo.w - enemy(index).w * 2)) + enemy(index).w
@@ -263,19 +274,35 @@ Sub InitEnemies()
 		enemy(index).dirX = cos(ATan2(enemy(index).fy - enemy(index).sy, enemy(index).fx - enemy(index).sx))
 		enemy(index).dirY = sin(ATan2(enemy(index).fy - enemy(index).sy, enemy(index).fx - enemy(index).sx))
 		enemy(index).variant = 1
-		enemy(index).x = enemy(index).sx - enemy(index).w
-		enemy(index).y = enemy(index).sy - enemy(index).h
+		enemy(index).x = enemy(index).sx
+		enemy(index).y = enemy(index).sy
 		enemy(index).explode = cFALSE
 		enemy(index).explodeCount = cEXPLODECOUNT
-		enemy(index).explodeRad = enemy(index).w + (level.level / 2)
+		enemy(index).explodeRad = enemy(index).w / 2 + (level.level)
 		enemyImg(index) = ImageCreate(enemy(index).w, enemy(index).h)
-		Line enemyImg(index), (0, 0)-(enemy(index).w - 1, enemy(index).h - 1), dWHITE, b
+		file = "alien" & Str(CInt(Rnd * 9)) & ".bmp"
+		BLoad file, enemyImg(index)
+		'Line enemyImg(index), (0, 0)-(enemy(index).w - 1, enemy(index).h - 1), dWHITE, b
 	Next
 	
 End Sub
 
 Sub InitGame()
 	ScreenInfo scrnInfo.w, scrnInfo.h
+	ScreenSet (0, 0) : Cls
+	Draw String (scrnInfo.w / 2 - 80, scrnInfo.h / 2 - 32), "Martions are invading!"
+	Draw String (scrnInfo.w / 2 - 160, scrnInfo.h / 2 - 16), "Use your lantern's fire power to kill them all."
+	Draw String (scrnInfo.w / 2 - 94, scrnInfo.h / 2 + 0), "Survive to level 25 to win"
+	Draw String (scrnInfo.w / 2 - 150, scrnInfo.h / 2 + 32), "Use the mouse to move, left click to fire"
+	Draw String (scrnInfo.w / 2 - 170, scrnInfo.h / 2 + 48), "Press q to quit at any time (except right now)"
+	'Sleep 5000
+	ScreenSet (1, 0)
+	
+	fsound_init(48000, 32, 0)
+	cityExplosion = fsound_sample_load(fsound_free, "boom.wav", 0, 0, 0)
+	fireExplosion = fsound_sample_load(fsound_free, "explosion.wav", 0, 0, 0)
+	fireSound = FSOUND_Sample_Load(fsound_free, "missile.wav", 0, 0, 0)
+	levelSiren = fsound_sample_load(fsound_free, "siren.wav", 0, 0, 0)
 	
 	SetMouse ( , , 0)
 	mouse.w = 16
@@ -297,9 +324,11 @@ End Sub
 
 Sub InitLevel()
 	Dim index As Integer
+	
 	If (level.numCitiesAlive <= 0) Then
 		GameOver()
 	EndIf
+	fsound_playsound(fsound_free, levelSiren)
 	If (level.level <> 0) Then
 
 			For index = 0 To cNUMFIRES - 1
@@ -307,7 +336,8 @@ Sub InitLevel()
 				fire(index).explodeCount = cEXPLODECOUNT
 				fire(index).explodeRad = 32 - (level.level / 4)
 				fire(index).fired = cFALSE
-				fire(index).speed = 1 - (level.level / 8)
+				fire(index).speed = 10 - level.level / 3
+				If (fire(index).speed < 1) Then fire(index).speed = 1
 				fire(index).sx = player.x + player.w \ 2
 				fire(index).sy = player.y
 				fire(index).cx = fire(index).sx
@@ -316,7 +346,7 @@ Sub InitLevel()
 
 			level.numEnemiesTotal = level.level + (Rnd * (level.level \ 4))
 			level.numEnemiesAlive = level.numEnemiesTotal
-			player.fires = level.numEnemiesTotal * 4 - (level.level / 2)
+			player.fires = level.numEnemiesTotal + 25 \ level.level
 			If (player.fires < level.numEnemiesTotal) Then player.fires = level.numEnemiesTotal
 			InitEnemies()
 	
@@ -329,10 +359,11 @@ End Sub
 
 Sub InitPlayer()
 	Dim pw As Integer = 32
-	Dim ph As Integer = 48
+	Dim ph As Integer = 57
 	
 	playerImg = ImageCreate(pw, ph)
-	Line playerImg, (0, 0)-(pw - 1, ph - 1), dWHITE, B
+	BLoad "lantern.bmp", playerImg
+	'Line playerImg, (0, 0)-(pw - 1, ph - 1), dWHITE, B
 	player.cities = cNUMCITIES
 	player.x = (scrnInfo.w \ 2) - (pw \ 2)
 	player.y = scrnInfo.h - ph - 8
@@ -357,14 +388,15 @@ Sub MouseEvents()
 			ready = cFALSE
 			For ind = 0 To cNUMFIRES - 1
 				If (fire(ind).fired <> cTRUE And player.fires > 0) Then
+					FSOUND_PlaySound(fsound_free, fireSound)
 					player.fires -= 1
 					fire(ind).fired = cTRUE
 					fire(ind).fx = mouse.x + mouse.w \ 2
 					fire(ind).fy = mouse.y + mouse.h \ 2
-					fire(ind).dirX = (fire(ind).fx - fire(ind).sx) / cFPS
-					fire(ind).dirY = (fire(ind).fy - fire(ind).sy) / cFPS
-					fire(ind).cx += fire(ind).dirX
-					fire(ind).cy += fire(ind).dirY
+					fire(ind).dirX = Cos(ATan2(fire(ind).fy - fire(ind).sy, fire(ind).fx - fire(ind).sx))
+					fire(ind).dirY = Sin(ATan2(fire(ind).fy - fire(ind).sy, fire(ind).fx - fire(ind).sx))
+					fire(ind).cx += fire(ind).dirX * fire(ind).speed
+					fire(ind).cy += fire(ind).dirY * fire(ind).speed
 					index += IIf(index = 9, -9, 1)
 				
 					Exit For
@@ -396,21 +428,42 @@ Sub UpdateCities()
 End Sub
 
 Sub UpdateEnemy()
+	Dim cx As Double
+	Dim cy As Double
+	Dim dist As Double
+	Dim ex As Double
+	Dim ey As Double
 	Dim ind As Integer
 	Dim index As Integer
-	Dim dist As Double
 	
 	For index = 0 To level.numEnemiesTotal - 1
 		If (enemy(index).alive = cTRUE) Then
 			If (enemy(index).explode = cFALSE) Then
 				enemy(index).x += enemy(index).dirX * enemy(index).speed
 				enemy(index).y += enemy(index).dirY * enemy(index).speed
-				If (enemy(index).y > scrnInfo.h - 8) Then enemy(index).y = scrnInfo.h - 8
+				'If (enemy(index).y + enemy(index).h / 2 > city(0).y) Then enemy(index).y = scrnInfo.h - enemy(index).h / 2
 			
-				'Collision dection -> Player's missles on Enemy
+				'Collision dection -> Player's missiles on Enemy
 				For ind = 0 To cNUMFIRES - 1
 					If (fire(ind).fired = cTRUE And fire(ind).explode = cTRUE) Then
-						dist = Distance(fire(ind).cx, enemy(index).x, fire(ind).cy, enemy(index).y)
+						
+						'Following IFs figures out which point is closest to missile (checks four corners and center points on lines)
+						If (fire(ind).cx < enemy(index).x) Then	'If on the left side of enemy
+							ex = enemy(index).x
+						ElseIf (fire(ind).cx > (enemy(index).x + enemy(index).w)) Then	'Else on the right side of enemy
+							ex = enemy(index).x + enemy(index).w
+						Else	'Else somewhere between the enemy
+							ex = enemy(index).x + enemy(index).w / 2
+						EndIf
+						If (fire(ind).cy < enemy(index).y) Then	'If above enemy
+							ey = enemy(index).y
+						ElseIf (fire(ind).cy > (enemy(index).y + enemy(index).h)) then	'Else below the enemy
+							ey = enemy(index).y + enemy(index).h
+						Else	'Else somewhere between the enemy
+							ey = enemy(index).y + enemy(index).h / 2
+						EndIf
+						
+						dist = Distance(fire(ind).cx, ex, fire(ind).cy, ey)
 						If (dist <= fire(ind).explodeRad) Then
 							enemy(index).explode = cTRUE
 							Exit For
@@ -420,11 +473,32 @@ Sub UpdateEnemy()
 				
 				'Collision dection -> Enemy on Cities
 				If (enemy(index).explode = cFALSE) Then
-					If (enemy(index).y >= scrninfo.h - city(0).h \ 2) Then
+					If (enemy(index).y + enemy(index).h / 2 >= city(0).y + city(0).h / 2) Then
+						If (enemy(index).explode = cFALSE) Then fsound_playsound(fsound_free, fireExplosion)
 						enemy(index).explode = cTRUE
+						ex = enemy(index).x + enemy(index).w / 2
+						ey = enemy(index).y + enemy(index).h / 2
 						For ind = 0 To cNUMCITIES - 1
-							dist = Distance(city(ind).x + city(ind).w \ 2, enemy(index).x, city(ind).y + city(ind).h \ 2, enemy(index).y)
+							
+							'Following IFs figures out which point is closest to enemy (checks four corners and center points on lines)
+							If (ex < city(ind).x) Then	'If enemy is left of city
+								cx = city(ind).x
+							ElseIf (ex > city(ind).x + city(ind).w) Then	'If enemy is right of city
+								cx = city(ind).x + city(ind).w
+							Else	'Else enemy is somewhere in between city
+								cx = city(ind).x + city(ind).w / 2
+							EndIf
+							If (ey < city(ind).y) then	'If enemy is above the city
+								cy = city(ind).y
+							ElseIf (ey > city(ind).y + city(ind).h) then	'If enemy is below the city
+								cy = city(ind).y + city(ind).h
+							Else
+								cy = city(ind).y + city(ind).h / 2
+							End If
+							
+							dist = Distance(cx, ex, cy, ey) 
 							If (dist <= enemy(index).explodeRad) Then
+								If (city(ind).explode = cFALSE) Then fsound_playsound(fsound_free, cityExplosion)
 								city(ind).explode = cTRUE
 							EndIf
 						Next
@@ -449,6 +523,7 @@ Sub UpdateFire()
 	For index = 0 To cNUMFIRES - 1
 		If (fire(index).fired = cTRUE) Then
 			If (fire(index).cy < fire(index).fy) Then
+				If (fire(index).explode = cFALSE) Then fsound_playsound(fsound_free, fireExplosion)
 				fire(index).explode = cTRUE
 				fire(index).explodeCount -= 1
 				If (fire(index).explodeCount = 0) Then
@@ -459,8 +534,8 @@ Sub UpdateFire()
 					fire(index).fired = cFALSE
 				EndIf
 			Else
-				fire(index).cx += fire(index).dirX
-				fire(index).cy += fire(index).dirY
+				fire(index).cx += fire(index).dirX * fire(index).speed
+				fire(index).cy += fire(index).dirY * fire(index).speed
 			EndIf
 		EndIf
 	Next
