@@ -148,9 +148,21 @@ Sub GameOver()
 End Sub
 
 Sub DrawScreen()
+	Dim col As Integer
 	Dim index As Integer
 	
 	ScreenSync
+	
+	col = 255
+	For index = scrnInfo.h To scrnInfo.h - player.h \ 2 Step -1
+		Line (0, index)-(scrnInfo.w, index), RGB(0, col, 0)
+		col -= 8 
+	Next
+	col = 255
+	For index = scrnInfo.h - player.h \ 2 To scrnInfo.h - player.h \ 2 - 255 Step -1
+		Line (0, index)-(scrnInfo.w, index), RGB(0, 0, col)
+		col -= 1
+	Next
 	
 	Put (player.x, player.y), playerImg, Trans
 	
@@ -169,7 +181,7 @@ Sub DrawScreen()
 			If (enemy(index).explode = cFALSE) Then
 				Put (enemy(index).x, enemy(index).y), enemyImg(index), Trans
 			Else
-				Circle (enemy(index).x + enemy(index).w \ 2, enemy(index).y + enemy(index).h \ 2), enemy(index).explodeRad, RGB(0, Rnd * 255, 0), , , , F
+				Circle (enemy(index).x + enemy(index).w \ 2, enemy(index).y + enemy(index).h \ 2), enemy(index).explodeRad, RGB(Rnd * 63, Rnd * 255, Rnd * 63), , , , F
 			EndIf
 		EndIf
 		
@@ -180,16 +192,20 @@ Sub DrawScreen()
 			Line (fire(index).sx, fire(index).sy)-(fire(index).cx, fire(index).cy), dRED
 		
 		elseIf (fire(index).fired = cTRUE And fire(index).explode = cTRUE) Then
-			Circle (fire(index).cx, fire(index).cy), fire(index).explodeRad, RGB(Rnd * 255, 0, 0), , , , F
+			Circle (fire(index).cx, fire(index).cy), fire(index).explodeRad, RGB(Rnd * 255, Rnd * 63, 0), , , , F
 		End If
 	Next
 	
 	Put (mouse.x, mouse.y), mouseImg, Trans
 	
-	Draw String (0, 0), "Fires: " & player.fires
-	'Draw String (0, 16), "Flashes: "
-	Draw String (scrnInfo.w - 80, 0), "Lives: " & player.lives
-	Draw String (scrnInfo.w - 80, 16), "Level: " & level.level
+	col = 255
+	For index = 0 To 16
+		Line (0, index)-(80, index), RGB(col * .75 , col * .50, col * .25)
+		Line (scrnInfo.w - 80, index)-(scrnInfo.w, index), RGB(col * .75 , col * .50, col * .25)
+		col -= 12
+	Next
+	Draw String (4, 1), "Fires: " & player.fires, RGB(255, 255, 200)
+	Draw String (scrnInfo.w - 75, 1), "Level: " & level.level, RGB(255, 255, 200)
 
 	ScreenCopy 1, 0
 	ScreenSet 1, 0
@@ -197,33 +213,35 @@ Sub DrawScreen()
 End Sub
 
 Sub InitCities()
-	Dim cw As Integer = 32
-	Dim ch As Integer = 16
+	Dim cw As Integer = 40
+	Dim ch As Integer = 29
 	Dim index As Integer
 	
 	For index = 0 To cNUMCITIES \ 2 - 1
 		city(index).alive = cTRUE
 		city(index).x = ((scrnInfo.w \ 2) \ (cNUMCITIES \ 2)) * (index)
-		city(index).y = scrnInfo.h - ch
+		city(index).y = scrnInfo.h - ch - 4
 		city(index).w = cw
 		city(index).h = ch
 		city(index).explode = cFALSE
 		city(index).explodeCount = 90
 		city(index).explodeRad = city(index).w + city(index).h
 		cityImg(index) = ImageCreate(cw, ch)
-		Line cityImg(index), (0, 0)-(cw - 1, ch - 1), dWHITE, B
+		BLoad "cityR.bmp", cityImg(index)
+		'Line cityImg(index), (0, 0)-(cw - 1, ch - 1), dWHITE, B
 	Next
 	For index = cNUMCITIES - 1 To cNUMCITIES \ 2 Step -1
 		city(index).alive = cTRUE
 		city(index).x = (((scrnInfo.w \ 2) \ (cNUMCITIES \ 2))  * (index + 1)) - cw 
-		city(index).y = scrnInfo.h - ch
+		city(index).y = scrnInfo.h - ch - 4
 		city(index).w = cw
 		city(index).h = ch
 		city(index).explode = cFALSE
 		city(index).explodeCount = 90
 		city(index).explodeRad = city(index).w + city(index).h
 		cityImg(index) = ImageCreate(cw, ch)
-		Line cityImg(index), (0, 0)-(cw - 1, ch - 1), dWHITE, B
+		BLoad "cityR.bmp", cityImg(index)
+		'Line cityImg(index), (0, 0)-(cw - 1, ch - 1), dWHITE, B
 	Next
 End Sub
 
@@ -317,7 +335,7 @@ Sub InitPlayer()
 	Line playerImg, (0, 0)-(pw - 1, ph - 1), dWHITE, B
 	player.cities = cNUMCITIES
 	player.x = (scrnInfo.w \ 2) - (pw \ 2)
-	player.y = scrnInfo.h - ph
+	player.y = scrnInfo.h - ph - 8
 	player.w = pw
 	player.h = ph
 	player.fires = 0
